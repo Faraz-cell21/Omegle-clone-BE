@@ -1,6 +1,7 @@
 import json
 import uuid
 import asyncio
+import time
 
 from channels.generic.websocket import AsyncWebsocketConsumer
 
@@ -12,14 +13,21 @@ from matchmaking.queue import (
 )
 
 
+HEARTBEAT_INTERVAL = 15
+HEARTBEAT_TIMEOUT = 30
+
+
 class ChatConsumer(AsyncWebsocketConsumer):
 
     async def connect(self):
 
         self.session_id = str(uuid.uuid4())
+
         self.room_id = None
         self.tags = []
         self.is_waiting = False
+
+        self.last_heartbeat = time.time()
 
         await self.accept()
 
@@ -27,6 +35,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
             "type": "session_created",
             "session_id": self.session_id,
         }))
+
+        asyncio.create_task(
+            self.monitor_heartbeat()
+        )
 
         print(f"Connected: {self.session_id}")
 
@@ -65,6 +77,38 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         elif event_type == "skip":
             await self.handle_skip()
+
+        elif event_type == "heartbeat":
+            await self.handle_heartbeat()
+
+    async def handle_heartbeat(self):
+
+        self.last_heartbeat = time.time()
+
+        await self.send(text_data=json.dumps({
+            "type": "heartbeat_ack",
+        }))
+
+    async def monitor_heartbeat(self):
+
+        while True:
+
+            await asyncio.sleep(HEARTBEAT_INTERVAL)
+
+            current_time = time.time()
+
+            if (
+                current_time - self.last_heartbeat
+                > HEARTBEAT_TIMEOUT
+            ):
+
+                print(
+                    f"Heartbeat timeout: {self.session_id}"
+                )
+
+                await self.close()
+
+                break
 
     async def handle_join_queue(self, data):
 
