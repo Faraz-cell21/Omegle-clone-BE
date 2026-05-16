@@ -1,8 +1,10 @@
 import uuid
-import time
+import json
+
+from core.redis import redis_client
 
 
-waiting_users = []
+WAITING_USERS_KEY = "waiting_users"
 
 
 def normalize_tags(tags):
@@ -23,72 +25,83 @@ def calculate_overlap(tags1, tags2):
 
 def add_to_queue(consumer):
 
+    waiting_users = redis_client.lrange(
+        WAITING_USERS_KEY,
+        0,
+        -1,
+    )
+
     best_match = None
     best_overlap = []
 
-    for waiting_consumer in waiting_users:
+    for raw_user in waiting_users:
 
-        if waiting_consumer.channel_name == consumer.channel_name:
+        waiting_user = json.loads(raw_user)
+
+        if (
+            waiting_user["session_id"]
+            == consumer.session_id
+        ):
             continue
 
         overlap = calculate_overlap(
             consumer.tags,
-            waiting_consumer.tags
+            waiting_user["tags"],
         )
 
         if len(overlap) > len(best_overlap):
             best_overlap = overlap
-            best_match = waiting_consumer
+            best_match = waiting_user
 
     if best_match:
 
-        waiting_users.remove(best_match)
+        redis_client.lrem(
+            WAITING_USERS_KEY,
+            1,
+            json.dumps(best_match),
+        )
 
         room_id = str(uuid.uuid4())
 
         return {
             "matched": True,
-            "partner": best_match,
+            "partner_session":
+            best_match["session_id"],
             "room_id": room_id,
             "matched_tags": best_overlap,
         }
 
-    waiting_users.append(consumer)
+    redis_client.rpush(
+        WAITING_USERS_KEY,
+        json.dumps({
+            "session_id":
+            consumer.session_id,
+            "tags":
+            consumer.tags,
+        })
+    )
 
     return {
         "matched": False,
     }
 
 
-def remove_from_queue(consumer):
+def remove_from_queue(session_id):
 
-    global waiting_users
+    waiting_users = redis_client.lrange(
+        WAITING_USERS_KEY,
+        0,
+        -1,
+    )
 
-    waiting_users = [
-        user
-        for user in waiting_users
-        if user.channel_name != consumer.channel_name
-    ]
+    for raw_user in waiting_users:
 
+        waiting_user = json.loads(raw_user)
 
-def fallback_global_match(consumer):
+        if waiting_user["session_id"] == session_id:
 
-    for waiting_consumer in waiting_users:
-
-        if waiting_consumer.channel_name == consumer.channel_name:
-            continue
-
-        waiting_users.remove(waiting_consumer)
-
-        room_id = str(uuid.uuid4())
-
-        return {
-            "matched": True,
-            "partner": waiting_consumer,
-            "room_id": room_id,
-            "matched_tags": [],
-        }
-
-    return {
-        "matched": False,
-    }
+            redis_client.lrem(
+                WAITING_USERS_KEY,
+                1,
+                raw_user,
+            )
