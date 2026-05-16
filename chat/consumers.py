@@ -12,9 +12,19 @@ from matchmaking.queue import (
     fallback_global_match,
 )
 
+from chat.state import (
+    add_room_message,
+    get_room_messages,
+    clear_room_messages,
+    create_report,
+)
+
 
 HEARTBEAT_INTERVAL = 15
 HEARTBEAT_TIMEOUT = 30
+
+MESSAGE_RATE_LIMIT = 5
+QUEUE_JOIN_COOLDOWN = 3
 
 
 class ChatConsumer(AsyncWebsocketConsumer):
@@ -29,7 +39,20 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         self.last_heartbeat = time.time()
 
+        self.message_timestamps = []
+
+        self.last_queue_join = 0
+
         await self.accept()
+
+        self.client_ip = self.scope.get("client", ["unknown"])[0]
+
+        headers = dict(self.scope["headers"])
+
+        self.user_agent = (
+            headers.get(b"user-agent", b"")
+            .decode()
+        )
 
         await self.send(text_data=json.dumps({
             "type": "session_created",
@@ -61,6 +84,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 self.channel_name,
             )
 
+            clear_room_messages(self.room_id)
+
         print(f"Disconnected: {self.session_id}")
 
     async def receive(self, text_data):
@@ -80,6 +105,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         elif event_type == "heartbeat":
             await self.handle_heartbeat()
+
+        elif event_type == "report":
+            await self.handle_report(data)
 
     async def handle_heartbeat(self):
 
@@ -111,6 +139,22 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 break
 
     async def handle_join_queue(self, data):
+
+        current_time = time.time()
+
+        if (
+            current_time - self.last_queue_join
+            < QUEUE_JOIN_COOLDOWN
+        ):
+
+            await self.send(text_data=json.dumps({
+                "type": "error",
+                "message": "Queue join cooldown active.",
+            }))
+
+            return
+
+        self.last_queue_join = current_time
 
         raw_tags = data.get("tags", [])
 
@@ -176,6 +220,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
         self.is_waiting = False
         partner.is_waiting = False
 
+        self.matched_tags = matched_tags
+
         await self.channel_layer.group_add(
             room_id,
             self.channel_name
@@ -200,15 +246,79 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if not self.room_id:
             return
 
+        current_time = time.time()
+
+        self.message_timestamps = [
+            ts
+            for ts in self.message_timestamps
+            if current_time - ts < 1
+        ]
+
+        if len(self.message_timestamps) >= MESSAGE_RATE_LIMIT:
+
+            await self.send(text_data=json.dumps({
+                "type": "error",
+                "message": "Message rate limit exceeded.",
+            }))
+
+            return
+
+        self.message_timestamps.append(current_time)
+
         message = data.get("message")
+
+        message_data = {
+            "sender": self.session_id,
+            "message": message,
+        }
+
+        add_room_message(
+            self.room_id,
+            message_data,
+        )
 
         await self.channel_layer.group_send(
             self.room_id,
             {
                 "type": "chat_message",
-                "message": message,
-                "sender": self.session_id,
+                **message_data,
             }
+        )
+
+    async def handle_report(self, data):
+
+        if not self.room_id:
+            return
+
+        reason = data.get(
+            "reason",
+            "No reason provided",
+        )
+
+        report_data = {
+            "report_id": str(uuid.uuid4()),
+            "room_id": self.room_id,
+            "reporter_session": self.session_id,
+            "reason": reason,
+            "matched_tags": self.matched_tags,
+            "messages": get_room_messages(
+                self.room_id
+            ),
+            "metadata": {
+                "ip_address": self.client_ip,
+                "user_agent": self.user_agent,
+            },
+            "timestamp": time.time(),
+        }
+
+        create_report(report_data)
+
+        await self.send(text_data=json.dumps({
+            "type": "report_submitted",
+        }))
+
+        print(
+            f"REPORT CREATED: {report_data}"
         )
 
     async def handle_skip(self):
@@ -229,6 +339,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
             room_id,
             self.channel_name,
         )
+
+        clear_room_messages(room_id)
 
         self.room_id = None
 
