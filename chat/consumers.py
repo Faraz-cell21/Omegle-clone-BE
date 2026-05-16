@@ -33,11 +33,17 @@ class ChatConsumer(AsyncWebsocketConsumer):
             remove_from_queue(self.tag, self)
 
         if self.room_id:
+
             await self.channel_layer.group_send(
                 self.room_id,
                 {
                     "type": "partner_disconnected",
                 }
+            )
+
+            await self.channel_layer.group_discard(
+                self.room_id,
+                self.channel_name,
             )
 
         print(f"Disconnected: {self.session_id}")
@@ -53,6 +59,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         elif event_type == "message":
             await self.handle_message(data)
+
+        elif event_type == "skip":
+            await self.handle_skip()
 
     async def handle_join_queue(self, data):
 
@@ -116,6 +125,31 @@ class ChatConsumer(AsyncWebsocketConsumer):
             }
         )
 
+    async def handle_skip(self):
+
+        if not self.room_id:
+            return
+
+        room_id = self.room_id
+
+        await self.channel_layer.group_send(
+            room_id,
+            {
+                "type": "partner_skipped",
+            }
+        )
+
+        await self.channel_layer.group_discard(
+            room_id,
+            self.channel_name,
+        )
+
+        self.room_id = None
+
+        await self.handle_join_queue({
+            "tag": self.tag or "global"
+        })
+
     async def chat_message(self, event):
 
         await self.send(text_data=json.dumps({
@@ -138,4 +172,13 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         await self.send(text_data=json.dumps({
             "type": "partner_disconnected",
+        }))
+
+    async def partner_skipped(self, event):
+
+        self.room_id = None
+
+        await self.send(text_data=json.dumps({
+            "type": "partner_skipped",
+            "message": "Partner skipped the chat.",
         }))

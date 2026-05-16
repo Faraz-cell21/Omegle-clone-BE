@@ -9,6 +9,7 @@ queues = {
 
 
 def get_queue(tag: str):
+
     if tag not in queues:
         queues[tag] = deque()
 
@@ -20,9 +21,11 @@ def add_to_queue(tag: str, consumer):
     queue = get_queue(tag)
 
     while queue:
+
         partner = queue.popleft()
 
         if partner.channel_name != consumer.channel_name:
+
             room_id = str(uuid.uuid4())
 
             return {
@@ -45,6 +48,7 @@ def remove_from_queue(tag: str, consumer):
     updated_queue = deque()
 
     while queue:
+
         queued_consumer = queue.popleft()
 
         if queued_consumer.channel_name != consumer.channel_name:
