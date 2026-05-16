@@ -1,57 +1,94 @@
-from collections import deque
 import uuid
+import time
 
 
-queues = {
-    "react": deque(),
-    "python": deque(),
-}
+waiting_users = []
 
 
-def get_queue(tag: str):
+def normalize_tags(tags):
 
-    if tag not in queues:
-        queues[tag] = deque()
+    return list(
+        set(
+            tag.strip().lower()
+            for tag in tags
+            if tag.strip()
+        )
+    )
 
-    return queues[tag]
+
+def calculate_overlap(tags1, tags2):
+
+    return list(set(tags1) & set(tags2))
 
 
-def add_to_queue(tag: str, consumer):
+def add_to_queue(consumer):
 
-    queue = get_queue(tag)
+    best_match = None
+    best_overlap = []
 
-    while queue:
+    for waiting_consumer in waiting_users:
 
-        partner = queue.popleft()
+        if waiting_consumer.channel_name == consumer.channel_name:
+            continue
 
-        if partner.channel_name != consumer.channel_name:
+        overlap = calculate_overlap(
+            consumer.tags,
+            waiting_consumer.tags
+        )
 
-            room_id = str(uuid.uuid4())
+        if len(overlap) > len(best_overlap):
+            best_overlap = overlap
+            best_match = waiting_consumer
 
-            return {
-                "matched": True,
-                "partner": partner,
-                "room_id": room_id,
-            }
+    if best_match:
 
-    queue.append(consumer)
+        waiting_users.remove(best_match)
+
+        room_id = str(uuid.uuid4())
+
+        return {
+            "matched": True,
+            "partner": best_match,
+            "room_id": room_id,
+            "matched_tags": best_overlap,
+        }
+
+    waiting_users.append(consumer)
 
     return {
         "matched": False,
     }
 
 
-def remove_from_queue(tag: str, consumer):
+def remove_from_queue(consumer):
 
-    queue = get_queue(tag)
+    global waiting_users
 
-    updated_queue = deque()
+    waiting_users = [
+        user
+        for user in waiting_users
+        if user.channel_name != consumer.channel_name
+    ]
 
-    while queue:
 
-        queued_consumer = queue.popleft()
+def fallback_global_match(consumer):
 
-        if queued_consumer.channel_name != consumer.channel_name:
-            updated_queue.append(queued_consumer)
+    for waiting_consumer in waiting_users:
 
-    queues[tag] = updated_queue
+        if waiting_consumer.channel_name == consumer.channel_name:
+            continue
+
+        waiting_users.remove(waiting_consumer)
+
+        room_id = str(uuid.uuid4())
+
+        return {
+            "matched": True,
+            "partner": waiting_consumer,
+            "room_id": room_id,
+            "matched_tags": [],
+        }
+
+    return {
+        "matched": False,
+    }

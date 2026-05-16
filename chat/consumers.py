@@ -1,11 +1,14 @@
 import json
 import uuid
+import asyncio
 
 from channels.generic.websocket import AsyncWebsocketConsumer
 
 from matchmaking.queue import (
     add_to_queue,
     remove_from_queue,
+    normalize_tags,
+    fallback_global_match,
 )
 
 
@@ -15,7 +18,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         self.session_id = str(uuid.uuid4())
         self.room_id = None
-        self.tag = None
+        self.tags = []
         self.is_waiting = False
 
         await self.accept()
@@ -29,8 +32,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     async def disconnect(self, close_code):
 
-        if self.is_waiting and self.tag:
-            remove_from_queue(self.tag, self)
+        if self.is_waiting:
+            remove_from_queue(self)
 
         if self.room_id:
 
@@ -65,49 +68,88 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     async def handle_join_queue(self, data):
 
-        tag = data.get("tag", "global")
+        raw_tags = data.get("tags", [])
 
-        self.tag = tag
+        self.tags = normalize_tags(raw_tags)
         self.is_waiting = True
 
-        result = add_to_queue(tag, self)
+        result = add_to_queue(self)
 
         if result["matched"]:
 
-            partner = result["partner"]
-            room_id = result["room_id"]
-
-            self.room_id = room_id
-            partner.room_id = room_id
-
-            self.is_waiting = False
-            partner.is_waiting = False
-
-            await self.channel_layer.group_add(
-                room_id,
-                self.channel_name
+            await self.create_match(
+                result["partner"],
+                result["room_id"],
+                result["matched_tags"],
             )
 
-            await partner.channel_layer.group_add(
-                room_id,
-                partner.channel_name
+            return
+
+        await self.send(text_data=json.dumps({
+            "type": "waiting",
+            "message": "Searching for users with matching interests...",
+            "tags": self.tags,
+        }))
+
+        asyncio.create_task(
+            self.handle_global_fallback()
+        )
+
+    async def handle_global_fallback(self):
+
+        await asyncio.sleep(10)
+
+        if not self.is_waiting:
+            return
+
+        result = fallback_global_match(self)
+
+        if result["matched"]:
+
+            await self.create_match(
+                result["partner"],
+                result["room_id"],
+                [],
             )
 
-            await self.channel_layer.group_send(
-                room_id,
-                {
-                    "type": "match_found",
-                    "room_id": room_id,
-                    "tag": tag,
-                }
-            )
+            return
 
-        else:
+        await self.send(text_data=json.dumps({
+            "type": "waiting",
+            "message": "Still searching globally...",
+        }))
 
-            await self.send(text_data=json.dumps({
-                "type": "waiting",
-                "message": f"Waiting for partner in '{tag}' queue..."
-            }))
+    async def create_match(
+        self,
+        partner,
+        room_id,
+        matched_tags,
+    ):
+
+        self.room_id = room_id
+        partner.room_id = room_id
+
+        self.is_waiting = False
+        partner.is_waiting = False
+
+        await self.channel_layer.group_add(
+            room_id,
+            self.channel_name
+        )
+
+        await partner.channel_layer.group_add(
+            room_id,
+            partner.channel_name
+        )
+
+        await self.channel_layer.group_send(
+            room_id,
+            {
+                "type": "match_found",
+                "room_id": room_id,
+                "matched_tags": matched_tags,
+            }
+        )
 
     async def handle_message(self, data):
 
@@ -147,7 +189,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         self.room_id = None
 
         await self.handle_join_queue({
-            "tag": self.tag or "global"
+            "tags": self.tags
         })
 
     async def chat_message(self, event):
@@ -163,7 +205,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         await self.send(text_data=json.dumps({
             "type": "matched",
             "room_id": event["room_id"],
-            "tag": event["tag"],
+            "matched_tags": event["matched_tags"],
         }))
 
     async def partner_disconnected(self, event):
