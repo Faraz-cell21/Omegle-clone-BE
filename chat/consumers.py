@@ -3,6 +3,7 @@ import uuid
 import asyncio
 import time
 
+from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
 
 from django.utils import timezone
@@ -59,10 +60,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             ).decode()
         )
 
-        banned = TemporaryBan.objects.filter(
-            ip_address=self.client_ip,
-            expires_at__gt=timezone.now(),
-        ).exists()
+        banned = await self.is_ip_banned()
 
         if banned:
 
@@ -319,50 +317,53 @@ class ChatConsumer(AsyncWebsocketConsumer):
             for msg in messages
         ]
 
-        report = Report.objects.create(
-            report_id=str(uuid.uuid4()),
-            room_id=self.room_id,
-            reporter_session=
-            self.session_id,
+        await self.submit_report(
             reason=data.get(
                 "reason",
                 "No reason",
             ),
-            matched_tags=self.tags,
-            messages=parsed_messages,
-            metadata={
-                "ip":
-                self.client_ip,
-                "user_agent":
-                self.user_agent,
-            }
+            parsed_messages=parsed_messages,
         )
-
-        report_count = Report.objects.filter(
-            metadata__ip=self.client_ip
-        ).count()
-
-        if (
-            report_count
-            >= REPORT_BAN_THRESHOLD
-        ):
-
-            TemporaryBan.objects.get_or_create(
-                ip_address=
-                self.client_ip,
-                defaults={
-                    "reason":
-                    "Too many reports",
-                    "expires_at":
-                    timezone.now()
-                    + timedelta(hours=24),
-                }
-            )
 
         await self.send(text_data=json.dumps({
             "type":
             "report_submitted",
         }))
+
+    @database_sync_to_async
+    def is_ip_banned(self):
+        return TemporaryBan.objects.filter(
+            ip_address=self.client_ip,
+            expires_at__gt=timezone.now(),
+        ).exists()
+
+    @database_sync_to_async
+    def submit_report(self, reason, parsed_messages):
+        Report.objects.create(
+            report_id=str(uuid.uuid4()),
+            room_id=self.room_id,
+            reporter_session=self.session_id,
+            reason=reason,
+            matched_tags=self.tags,
+            messages=parsed_messages,
+            metadata={
+                "ip": self.client_ip,
+                "user_agent": self.user_agent,
+            },
+        )
+
+        report_count = Report.objects.filter(
+            metadata__ip=self.client_ip,
+        ).count()
+
+        if report_count >= REPORT_BAN_THRESHOLD:
+            TemporaryBan.objects.get_or_create(
+                ip_address=self.client_ip,
+                defaults={
+                    "reason": "Too many reports",
+                    "expires_at": timezone.now() + timedelta(hours=24),
+                },
+            )
 
     async def partner_disconnected(self, event):
 
