@@ -192,9 +192,43 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         result = add_to_queue(self)
 
-        await self.send(text_data=json.dumps({
-            "type": "waiting",
-        }))
+        if result.get("matched"):
+
+            self.room_id = result["room_id"]
+
+            self.is_waiting = False
+
+            # Join the room group for message relaying
+            await self.channel_layer.group_add(
+                self.room_id,
+                self.channel_name,
+            )
+
+            # Notify the partner who was waiting
+            matched_tags = result["matched_tags"]
+
+            await self.channel_layer.send(
+                result["partner_channel_name"],
+                {
+                    "type": "matched_event",
+                    "room_id": self.room_id,
+                    "partner_session": self.session_id,
+                    "matched_tags": matched_tags,
+                }
+            )
+
+            # Notify self
+            await self.send(text_data=json.dumps({
+                "type": "matched",
+                "room_id": self.room_id,
+                "matched_tags": matched_tags,
+            }))
+
+        else:
+
+            await self.send(text_data=json.dumps({
+                "type": "waiting",
+            }))
 
     async def handle_message(self, data):
 
@@ -328,6 +362,30 @@ class ChatConsumer(AsyncWebsocketConsumer):
         await self.send(text_data=json.dumps({
             "type":
             "report_submitted",
+        }))
+
+    async def partner_disconnected(self, event):
+
+        await self.send(text_data=json.dumps({
+            "type": "partner_disconnected",
+        }))
+
+    async def matched_event(self, event):
+
+        self.room_id = event["room_id"]
+
+        self.is_waiting = False
+
+        await self.channel_layer.group_add(
+            self.room_id,
+            self.channel_name,
+        )
+
+        await self.send(text_data=json.dumps({
+            "type": "matched",
+            "room_id": self.room_id,
+            "matched_tags":
+            event["matched_tags"],
         }))
 
     async def chat_message(self, event):

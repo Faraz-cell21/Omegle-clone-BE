@@ -67,6 +67,8 @@ def add_to_queue(consumer):
             "matched": True,
             "partner_session":
             best_match["session_id"],
+            "partner_channel_name":
+            best_match["channel_name"],
             "room_id": room_id,
             "matched_tags": best_overlap,
         }
@@ -76,6 +78,8 @@ def add_to_queue(consumer):
         json.dumps({
             "session_id":
             consumer.session_id,
+            "channel_name":
+            consumer.channel_name,
             "tags":
             consumer.tags,
         })
