@@ -89,23 +89,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
             )
 
         if self.room_id:
-
-            await self.channel_layer.group_send(
-                self.room_id,
-                {
-                    "type":
-                    "partner_disconnected",
-                }
-            )
-
-            await self.channel_layer.group_discard(
-                self.room_id,
-                self.channel_name,
-            )
-
-            redis_client.delete(
-                f"room:{self.room_id}:messages"
-            )
+            await self._notify_partner_disconnected()
+            await self._discard_room_membership()
 
     async def receive(self, text_data):
 
@@ -158,21 +143,44 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
                 break
 
+    async def _notify_partner_disconnected(self):
+
+        if not self.room_id:
+            return
+
+        await self.channel_layer.group_send(
+            self.room_id,
+            {
+                "type": "partner_disconnected",
+                "excluded_session": self.session_id,
+            },
+        )
+
+    async def _discard_room_membership(self):
+
+        if not self.room_id:
+            return
+
+        room_id = self.room_id
+
+        await self.channel_layer.group_discard(
+            room_id,
+            self.channel_name,
+        )
+
+        redis_client.delete(
+            f"room:{room_id}:messages"
+        )
+
+        self.room_id = None
+
     async def leave_current_room(self):
 
         if not self.room_id:
             return
 
-        await self.channel_layer.group_discard(
-            self.room_id,
-            self.channel_name,
-        )
-
-        redis_client.delete(
-            f"room:{self.room_id}:messages"
-        )
-
-        self.room_id = None
+        await self._notify_partner_disconnected()
+        await self._discard_room_membership()
 
     async def handle_join_queue(self, data):
 
@@ -385,6 +393,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
             )
 
     async def partner_disconnected(self, event):
+
+        if (
+            event.get("excluded_session")
+            == self.session_id
+        ):
+            return
 
         await self.send(text_data=json.dumps({
             "type": "partner_disconnected",

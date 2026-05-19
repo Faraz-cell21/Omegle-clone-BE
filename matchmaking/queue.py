@@ -31,8 +31,11 @@ def add_to_queue(consumer):
         -1,
     )
 
+    is_global = len(consumer.tags) == 0
+
     best_match = None
     best_overlap = []
+    first_global_match = None
 
     for raw_user in waiting_users:
 
@@ -44,14 +47,31 @@ def add_to_queue(consumer):
         ):
             continue
 
+        waiting_tags = waiting_user["tags"]
+        waiting_is_global = len(waiting_tags) == 0
+
+        # Global chat: match with anyone else in global queue (FIFO)
+        if is_global:
+            if waiting_is_global and first_global_match is None:
+                first_global_match = waiting_user
+            continue
+
+        # Tagged chat: only match users who also have tags
+        if waiting_is_global:
+            continue
+
         overlap = calculate_overlap(
             consumer.tags,
-            waiting_user["tags"],
+            waiting_tags,
         )
 
         if len(overlap) > len(best_overlap):
             best_overlap = overlap
             best_match = waiting_user
+
+    if is_global and first_global_match is not None:
+        best_match = first_global_match
+        best_overlap = []
 
     if best_match:
 
