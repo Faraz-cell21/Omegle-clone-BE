@@ -158,7 +158,26 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
                 break
 
+    async def leave_current_room(self):
+
+        if not self.room_id:
+            return
+
+        await self.channel_layer.group_discard(
+            self.room_id,
+            self.channel_name,
+        )
+
+        redis_client.delete(
+            f"room:{self.room_id}:messages"
+        )
+
+        self.room_id = None
+
     async def handle_join_queue(self, data):
+
+        if self.room_id:
+            await self.leave_current_room()
 
         cooldown_key = (
             f"cooldown:{self.client_ip}"
