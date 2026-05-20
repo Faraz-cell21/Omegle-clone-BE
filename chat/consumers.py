@@ -28,6 +28,8 @@ HEARTBEAT_TIMEOUT = 30
 
 MESSAGE_RATE_LIMIT = 5
 QUEUE_JOIN_COOLDOWN = 3
+SKIP_LIMIT_PER_MINUTE = 12
+SKIP_COOLDOWN_SECONDS = 30
 
 # REPORT_BAN_THRESHOLD = 3
 
@@ -138,6 +140,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 - self.last_heartbeat
                 > HEARTBEAT_TIMEOUT
             ):
+                await self.send(text_data=json.dumps({
+                    "type": "timeout",
+                    "message": "Connection timed out due to inactivity.",
+                }))
 
                 await self.close()
 
@@ -184,8 +190,13 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     async def handle_join_queue(self, data):
 
+        is_skip_request = bool(self.room_id)
+
         if self.room_id:
             await self.leave_current_room()
+
+        if await self._skip_limit_triggered(is_skip_request):
+            return
 
         cooldown_key = (
             f"cooldown:{self.client_ip}"
@@ -254,6 +265,40 @@ class ChatConsumer(AsyncWebsocketConsumer):
             await self.send(text_data=json.dumps({
                 "type": "waiting",
             }))
+
+    async def _skip_limit_triggered(self, is_skip_request):
+        if not is_skip_request:
+            return False
+
+        if self.client_ip == "unknown":
+            return False
+
+        skip_block_key = f"skip:block:{self.client_ip}"
+        if redis_client.exists(skip_block_key):
+            await self.send(text_data=json.dumps({
+                "type": "error",
+                "message": f"Skip cooldown active. Wait {SKIP_COOLDOWN_SECONDS}s.",
+            }))
+            return True
+
+        skip_count_key = f"skip:count:{self.client_ip}"
+        count = redis_client.incr(skip_count_key)
+        if count == 1:
+            redis_client.expire(skip_count_key, 60)
+
+        if count > SKIP_LIMIT_PER_MINUTE:
+            redis_client.set(
+                skip_block_key,
+                "1",
+                ex=SKIP_COOLDOWN_SECONDS,
+            )
+            await self.send(text_data=json.dumps({
+                "type": "error",
+                "message": f"Too many skips. Wait {SKIP_COOLDOWN_SECONDS}s.",
+            }))
+            return True
+
+        return False
 
     async def handle_message(self, data):
 

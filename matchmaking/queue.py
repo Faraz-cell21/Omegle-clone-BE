@@ -5,6 +5,9 @@ from core.redis import redis_client
 
 
 WAITING_USERS_KEY = "waiting_users"
+RECENT_PARTNERS_KEY_PREFIX = "recent_partners"
+RECENT_PARTNER_TTL_SECONDS = 600
+RECENT_PARTNER_SET_SIZE = 40
 
 
 def normalize_tags(tags):
@@ -21,6 +24,44 @@ def normalize_tags(tags):
 def calculate_overlap(tags1, tags2):
 
     return list(set(tags1) & set(tags2))
+
+
+def _recent_partners_key(session_id):
+    return f"{RECENT_PARTNERS_KEY_PREFIX}:{session_id}"
+
+
+def _has_recent_match(session_a, session_b):
+    if not session_a or not session_b:
+        return False
+    return bool(
+        redis_client.sismember(
+            _recent_partners_key(session_a),
+            session_b,
+        )
+    )
+
+
+def _remember_match_pair(session_a, session_b):
+    if not session_a or not session_b:
+        return
+
+    key_a = _recent_partners_key(session_a)
+    key_b = _recent_partners_key(session_b)
+
+    redis_client.sadd(key_a, session_b)
+    redis_client.sadd(key_b, session_a)
+    redis_client.expire(key_a, RECENT_PARTNER_TTL_SECONDS)
+    redis_client.expire(key_b, RECENT_PARTNER_TTL_SECONDS)
+
+    # Keep sets bounded to avoid unbounded growth.
+    if redis_client.scard(key_a) > RECENT_PARTNER_SET_SIZE:
+        stale = redis_client.srandmember(key_a)
+        if stale:
+            redis_client.srem(key_a, stale)
+    if redis_client.scard(key_b) > RECENT_PARTNER_SET_SIZE:
+        stale = redis_client.srandmember(key_b)
+        if stale:
+            redis_client.srem(key_b, stale)
 
 
 def add_to_queue(consumer):
@@ -44,6 +85,12 @@ def add_to_queue(consumer):
         if (
             waiting_user["session_id"]
             == consumer.session_id
+        ):
+            continue
+
+        if _has_recent_match(
+            consumer.session_id,
+            waiting_user["session_id"],
         ):
             continue
 
@@ -79,6 +126,11 @@ def add_to_queue(consumer):
             WAITING_USERS_KEY,
             1,
             json.dumps(best_match),
+        )
+
+        _remember_match_pair(
+            consumer.session_id,
+            best_match["session_id"],
         )
 
         room_id = str(uuid.uuid4())
