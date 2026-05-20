@@ -11,7 +11,15 @@ SECRET_KEY = "django-insecure-51_(%u&bp=lvt5hkzj4(pqc-2!=*_^g7+=!7ylsqj@n!gd!zh@
 
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
+
+# Frontend on port 3002 (and other common dev ports).
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:3002",
+    "http://127.0.0.1:3002",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
 
 INSTALLED_APPS = [
     "daphne",
@@ -35,6 +43,7 @@ MIDDLEWARE = [
     "core.middleware.AllowAllCorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "core.middleware.CsrfExemptApiMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",

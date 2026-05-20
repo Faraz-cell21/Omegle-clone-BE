@@ -17,8 +17,12 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import include, path
 
+from core.views import LoginView
+
 urlpatterns = [
-    path('admin/', admin.site.urls),
+    # FE uses /admin/login/ — route to JWT login (must be before admin.site.urls).
+    path("admin/login/", LoginView.as_view(), name="jwt-login-alias"),
     path("api/", include("core.urls")),
     path("api/", include("moderation.urls")),
+    path("admin/", admin.site.urls),
 ]

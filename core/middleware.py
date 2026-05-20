@@ -1,3 +1,15 @@
+class CsrfExemptApiMiddleware:
+    """Skip CSRF for JWT API routes (browser clients use Bearer token, not cookies)."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if request.path.startswith("/api/") or request.path == "/admin/login/":
+            request._dont_enforce_csrf_checks = True
+        return self.get_response(request)
+
+
 class AllowAllCorsMiddleware:
     """
     Temporary CORS middleware for development.
