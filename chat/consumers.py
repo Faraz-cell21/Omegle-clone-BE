@@ -52,6 +52,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
             "client",
             ["unknown"]
         )[0]
+        self._presence_key = f"presence:{self.session_id}"
+        self._active_ip_count_key = f"active_ip_count:{self.client_ip}"
 
         headers = dict(self.scope["headers"])
 
@@ -74,6 +76,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
             return
 
+        self._register_ip_presence()
+
         await self.send(text_data=json.dumps({
             "type": "session_created",
             "session_id": self.session_id,
@@ -93,6 +97,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if self.room_id:
             await self._notify_partner_disconnected()
             await self._discard_room_membership()
+
+        self._unregister_ip_presence()
 
     async def receive(self, text_data):
 
@@ -120,7 +126,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         self.last_heartbeat = time.time()
 
         redis_client.set(
-            f"presence:{self.session_id}",
+            self._presence_key,
             int(time.time()),
             ex=60,
         )
@@ -408,6 +414,24 @@ class ChatConsumer(AsyncWebsocketConsumer):
             ip_address=self.client_ip,
             expires_at__gt=timezone.now(),
         ).exists()
+
+    def _register_ip_presence(self):
+        if self.client_ip == "unknown":
+            return
+
+        redis_client.sadd("visited_ips", self.client_ip)
+        count = redis_client.incr(self._active_ip_count_key)
+        if count == 1:
+            redis_client.sadd("active_ips", self.client_ip)
+
+    def _unregister_ip_presence(self):
+        if self.client_ip == "unknown":
+            return
+
+        count = redis_client.decr(self._active_ip_count_key)
+        if count <= 0:
+            redis_client.delete(self._active_ip_count_key)
+            redis_client.srem("active_ips", self.client_ip)
 
     # @database_sync_to_async
     # def submit_report(self, reason, parsed_messages):
