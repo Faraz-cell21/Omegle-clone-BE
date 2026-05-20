@@ -7,7 +7,7 @@ from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
 
 from django.utils import timezone
-from datetime import timedelta
+# from datetime import timedelta
 
 from matchmaking.queue import (
     add_to_queue,
@@ -16,7 +16,7 @@ from matchmaking.queue import (
 )
 
 from moderation.models import (
-    Report,
+    # Report,
     TemporaryBan,
 )
 
@@ -29,7 +29,7 @@ HEARTBEAT_TIMEOUT = 30
 MESSAGE_RATE_LIMIT = 5
 QUEUE_JOIN_COOLDOWN = 3
 
-REPORT_BAN_THRESHOLD = 3
+# REPORT_BAN_THRESHOLD = 3
 
 
 class ChatConsumer(AsyncWebsocketConsumer):
@@ -110,8 +110,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
         elif event_type == "typing":
             await self.handle_typing()
 
-        elif event_type == "report":
-            await self.handle_report(data)
+        # elif event_type == "report":
+        #     await self.handle_report(data)
 
     async def handle_heartbeat(self):
 
@@ -328,34 +328,34 @@ class ChatConsumer(AsyncWebsocketConsumer):
             }
         )
 
-    async def handle_report(self, data):
-
-        if not self.room_id:
-            return
-
-        messages = redis_client.lrange(
-            f"room:{self.room_id}:messages",
-            0,
-            -1,
-        )
-
-        parsed_messages = [
-            json.loads(msg)
-            for msg in messages
-        ]
-
-        await self.submit_report(
-            reason=data.get(
-                "reason",
-                "No reason",
-            ),
-            parsed_messages=parsed_messages,
-        )
-
-        await self.send(text_data=json.dumps({
-            "type":
-            "report_submitted",
-        }))
+    # async def handle_report(self, data):
+    #
+    #     if not self.room_id:
+    #         return
+    #
+    #     messages = redis_client.lrange(
+    #         f"room:{self.room_id}:messages",
+    #         0,
+    #         -1,
+    #     )
+    #
+    #     parsed_messages = [
+    #         json.loads(msg)
+    #         for msg in messages
+    #     ]
+    #
+    #     await self.submit_report(
+    #         reason=data.get(
+    #             "reason",
+    #             "No reason",
+    #         ),
+    #         parsed_messages=parsed_messages,
+    #     )
+    #
+    #     await self.send(text_data=json.dumps({
+    #         "type":
+    #         "report_submitted",
+    #     }))
 
     @database_sync_to_async
     def is_ip_banned(self):
@@ -364,33 +364,33 @@ class ChatConsumer(AsyncWebsocketConsumer):
             expires_at__gt=timezone.now(),
         ).exists()
 
-    @database_sync_to_async
-    def submit_report(self, reason, parsed_messages):
-        Report.objects.create(
-            report_id=str(uuid.uuid4()),
-            room_id=self.room_id,
-            reporter_session=self.session_id,
-            reason=reason,
-            matched_tags=self.tags,
-            messages=parsed_messages,
-            metadata={
-                "ip": self.client_ip,
-                "user_agent": self.user_agent,
-            },
-        )
-
-        report_count = Report.objects.filter(
-            metadata__ip=self.client_ip,
-        ).count()
-
-        if report_count >= REPORT_BAN_THRESHOLD:
-            TemporaryBan.objects.get_or_create(
-                ip_address=self.client_ip,
-                defaults={
-                    "reason": "Too many reports",
-                    "expires_at": timezone.now() + timedelta(hours=24),
-                },
-            )
+    # @database_sync_to_async
+    # def submit_report(self, reason, parsed_messages):
+    #     Report.objects.create(
+    #         report_id=str(uuid.uuid4()),
+    #         room_id=self.room_id,
+    #         reporter_session=self.session_id,
+    #         reason=reason,
+    #         matched_tags=self.tags,
+    #         messages=parsed_messages,
+    #         metadata={
+    #             "ip": self.client_ip,
+    #             "user_agent": self.user_agent,
+    #         },
+    #     )
+    #
+    #     report_count = Report.objects.filter(
+    #         metadata__ip=self.client_ip,
+    #     ).count()
+    #
+    #     if report_count >= REPORT_BAN_THRESHOLD:
+    #         TemporaryBan.objects.get_or_create(
+    #             ip_address=self.client_ip,
+    #             defaults={
+    #                 "reason": "Too many reports",
+    #                 "expires_at": timezone.now() + timedelta(hours=24),
+    #             },
+    #         )
 
     async def partner_disconnected(self, event):
 

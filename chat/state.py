@@ -10,7 +10,7 @@ room_messages = defaultdict(
 )
 
 
-reports = []
+# reports = []
 
 
 def add_room_message(room_id, message_data):
@@ -32,6 +32,6 @@ def clear_room_messages(room_id):
         del room_messages[room_id]
 
 
-def create_report(report_data):
-
-    reports.append(report_data)
+# def create_report(report_data):
+#
+#     reports.append(report_data)
