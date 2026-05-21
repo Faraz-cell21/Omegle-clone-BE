@@ -6,6 +6,7 @@ import time
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
 
+from django.conf import settings
 from django.utils import timezone
 # from datetime import timedelta
 
@@ -212,25 +213,22 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if await self._skip_limit_triggered(is_skip_request):
             return
 
-        cooldown_key = (
-            f"cooldown:{self.client_ip}"
-        )
+        bypass_limits = getattr(settings, "LOAD_TEST_BYPASS_LIMITS", False)
+        cooldown_key = f"cooldown:{self.client_ip}"
 
-        if redis_client.exists(cooldown_key):
-
+        if not bypass_limits and redis_client.exists(cooldown_key):
             await self.send(text_data=json.dumps({
                 "type": "error",
-                "message":
-                "Queue cooldown active.",
+                "message": "Queue cooldown active.",
             }))
-
             return
 
-        redis_client.set(
-            cooldown_key,
-            "1",
-            ex=QUEUE_JOIN_COOLDOWN,
-        )
+        if not bypass_limits:
+            redis_client.set(
+                cooldown_key,
+                "1",
+                ex=QUEUE_JOIN_COOLDOWN,
+            )
 
         raw_tags = data.get("tags", [])
 
@@ -282,6 +280,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     async def _skip_limit_triggered(self, is_skip_request):
         if not is_skip_request:
+            return False
+
+        if getattr(settings, "LOAD_TEST_BYPASS_LIMITS", False):
             return False
 
         if self.client_ip == "unknown":

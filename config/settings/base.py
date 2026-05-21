@@ -132,3 +132,6 @@ TURNSTILE_SITE_KEY = os.getenv("TURNSTILE_SITE_KEY", "")
 TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 TURNSTILE_BYPASS = os.getenv("TURNSTILE_BYPASS", "False") == "True"
 
+# Load/stress tests from one machine share an IP — bypass per-IP queue/skip limits.
+LOAD_TEST_BYPASS_LIMITS = os.getenv("LOAD_TEST_BYPASS_LIMITS", "False") == "True"
+
