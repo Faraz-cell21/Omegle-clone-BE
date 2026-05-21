@@ -126,3 +126,9 @@ CACHES = {
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# Cloudflare Turnstile (see https://developers.cloudflare.com/turnstile/)
+TURNSTILE_SECRET_KEY = os.getenv("TURNSTILE_SECRET_KEY", "")
+TURNSTILE_SITE_KEY = os.getenv("TURNSTILE_SITE_KEY", "")
+TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+TURNSTILE_BYPASS = os.getenv("TURNSTILE_BYPASS", "False") == "True"
+

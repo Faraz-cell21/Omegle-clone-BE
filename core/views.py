@@ -5,6 +5,14 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.auth import BearerJWTAuthentication, generate_access_token
+from core.turnstile import (
+    TurnstileVerificationError,
+    TURNSTILE_VERIFIED_TTL_SECONDS,
+    get_client_ip,
+    is_turnstile_enforced,
+    mark_ip_captcha_verified,
+    verify_turnstile_token,
+)
 
 
 class RegisterAdminView(APIView):
@@ -105,6 +113,42 @@ class LoginView(APIView):
                     "email": user.email,
                     "is_staff": user.is_staff,
                 },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class CaptchaVerifyView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        if not is_turnstile_enforced():
+            return Response(
+                {
+                    "validity": True,
+                    "message": "Captcha verification not required.",
+                    "expires_in": TURNSTILE_VERIFIED_TTL_SECONDS,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        token = (request.data.get("turnstile_token") or "").strip()
+        client_ip = get_client_ip(request)
+
+        try:
+            verify_turnstile_token(token, client_ip)
+        except TurnstileVerificationError as exc:
+            return Response(
+                {"validity": False, "message": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        mark_ip_captcha_verified(client_ip)
+        return Response(
+            {
+                "validity": True,
+                "message": "Captcha verification succeeded.",
+                "expires_in": TURNSTILE_VERIFIED_TTL_SECONDS,
             },
             status=status.HTTP_200_OK,
         )

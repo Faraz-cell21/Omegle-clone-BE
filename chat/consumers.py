@@ -21,6 +21,7 @@ from moderation.models import (
 )
 
 from core.redis import redis_client
+from core.turnstile import is_ip_captcha_verified
 
 
 HEARTBEAT_INTERVAL = 15
@@ -195,6 +196,13 @@ class ChatConsumer(AsyncWebsocketConsumer):
         await self._discard_room_membership()
 
     async def handle_join_queue(self, data):
+
+        if not is_ip_captcha_verified(self.client_ip):
+            await self.send(text_data=json.dumps({
+                "type": "error",
+                "message": "Complete security verification before connecting.",
+            }))
+            return
 
         is_skip_request = bool(self.room_id)
 
