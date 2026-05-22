@@ -1,10 +1,13 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import check_password
+from django.db import connection
+from django.utils import timezone
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.auth import BearerJWTAuthentication, generate_access_token
+from core.redis import redis_client
 from core.turnstile import (
     TurnstileVerificationError,
     TURNSTILE_VERIFIED_TTL_SECONDS,
@@ -164,3 +167,32 @@ class LogoutView(APIView):
             {"detail": "Logged out successfully. Remove token on client."},
             status=status.HTTP_200_OK,
         )
+
+
+class HealthCheckView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        checks: dict[str, str] = {}
+        http_status = status.HTTP_200_OK
+
+        try:
+            connection.ensure_connection()
+            checks["database"] = "ok"
+        except Exception as exc:
+            checks["database"] = f"error: {exc}"
+            http_status = status.HTTP_503_SERVICE_UNAVAILABLE
+
+        try:
+            redis_client.ping()
+            checks["redis"] = "ok"
+        except Exception as exc:
+            checks["redis"] = f"error: {exc}"
+            http_status = status.HTTP_503_SERVICE_UNAVAILABLE
+
+        body = {
+            "status": "ok" if http_status == status.HTTP_200_OK else "degraded",
+            "checks": checks,
+            "timestamp": timezone.now().isoformat(),
+        }
+        return Response(body, status=http_status)

@@ -7,19 +7,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 load_dotenv(BASE_DIR / ".env")
 
-SECRET_KEY = "django-insecure-51_(%u&bp=lvt5hkzj4(pqc-2!=*_^g7+=!7ylsqj@n!gd!zh@"
 
-DEBUG = True
+def env_bool(name: str, default: str = "False") -> bool:
+    return os.getenv(name, default).strip().lower() in ("1", "true", "yes", "on")
 
-ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
 
-# Frontend on port 3002 (and other common dev ports).
-CSRF_TRUSTED_ORIGINS = [
-    "http://localhost:3002",
-    "http://127.0.0.1:3002",
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-]
+def env_list(name: str, default: str = "") -> list[str]:
+    raw = os.getenv(name, default)
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
 
 INSTALLED_APPS = [
     "daphne",
@@ -40,7 +36,6 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
-    "core.middleware.AllowAllCorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "core.middleware.CsrfExemptApiMiddleware",
@@ -70,14 +65,18 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
+_sqlite_path = Path(
+    os.getenv("SQLITE_PATH", str(BASE_DIR / "data" / "db.sqlite3")),
+).resolve()
+_sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("DB_NAME", "omegle_db"),
-        "USER": os.getenv("DB_USER", "postgres"),
-        "PASSWORD": os.getenv("DB_PASSWORD", ""),
-        "HOST": os.getenv("DB_HOST", "localhost"),
-        "PORT": os.getenv("DB_PORT", "5432"),
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": _sqlite_path,
+        "OPTIONS": {
+            "timeout": int(os.getenv("SQLITE_TIMEOUT", "20")),
+        },
     }
 }
 
@@ -102,8 +101,9 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
-REDIS_URL = "redis://127.0.0.1:6379/1"
+REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/1")
 
 CHANNEL_LAYERS = {
     "default": {
@@ -126,12 +126,17 @@ CACHES = {
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+REST_FRAMEWORK = {
+    "DEFAULT_RENDERER_CLASSES": [
+        "rest_framework.renderers.JSONRenderer",
+    ],
+}
+
 # Cloudflare Turnstile (see https://developers.cloudflare.com/turnstile/)
 TURNSTILE_SECRET_KEY = os.getenv("TURNSTILE_SECRET_KEY", "")
 TURNSTILE_SITE_KEY = os.getenv("TURNSTILE_SITE_KEY", "")
 TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
-TURNSTILE_BYPASS = os.getenv("TURNSTILE_BYPASS", "False") == "True"
+TURNSTILE_BYPASS = env_bool("TURNSTILE_BYPASS", "False")
 
 # Load/stress tests from one machine share an IP — bypass per-IP queue/skip limits.
-LOAD_TEST_BYPASS_LIMITS = os.getenv("LOAD_TEST_BYPASS_LIMITS", "False") == "True"
-
+LOAD_TEST_BYPASS_LIMITS = env_bool("LOAD_TEST_BYPASS_LIMITS", "False")
