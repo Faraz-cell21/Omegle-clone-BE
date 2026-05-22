@@ -1,0 +1,25 @@
+# Copy to .env on the server (never commit real .env)
+
+DJANGO_ENV=production
+DJANGO_SECRET_KEY=
+
+# SQLite database file (persist this path on your server / volume)
+# SQLITE_PATH=/var/lib/chatot/db.sqlite3
+SQLITE_TIMEOUT=20
+
+REDIS_URL=redis://127.0.0.1:6379/1
+
+# Your public site and API hostnames (comma-separated, no spaces)
+ALLOWED_HOSTS=
+CORS_ALLOWED_ORIGINS=
+CSRF_TRUSTED_ORIGINS=
+
+# Production Turnstile keys from Cloudflare dashboard
+TURNSTILE_SITE_KEY=
+TURNSTILE_SECRET_KEY=
+TURNSTILE_BYPASS=False
+LOAD_TEST_BYPASS_LIMITS=False
+
+SECURE_SSL_REDIRECT=True
+SECURE_HSTS_SECONDS=
+LOG_LEVEL=INFO
